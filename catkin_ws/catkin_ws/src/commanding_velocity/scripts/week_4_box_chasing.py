@@ -30,16 +30,18 @@ class Follower:
     def callback(self, msg):
         image = self.bridge.imgmsg_to_cv2(msg,desired_encoding='bgr8')
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        lower_green = numpy.array([ 50, 100,  50])
-        upper_green = numpy.array([ 180, 255, 255])
+        lower_green = numpy.array([ 45, 100,  50])
+        upper_green = numpy.array([ 75, 255, 255])
         mask = cv2.inRange(hsv, lower_green, upper_green)
         h, w, d = image.shape
     
         # calculate the area of the values that are within the mask
         M = cv2.moments(mask)
+        
+        print(M['m00'])
         # if area over zero for the mask
-        if M['m00'] > 0:
-          # find the centre of the area
+        if M['m00'] > 1000000:
+        #  # find the centre of the area
           cx = int(M['m10']/M['m00'])
           cy = int(M['m01']/M['m00'])
           # make a circle of the centre and add it to the image
@@ -48,7 +50,7 @@ class Follower:
           # calculate the error by subtracting the location of centre of red dot on x axis
           # by the width of the image/2 (to get the left and right values)
           err = cx - w/2
-          self.twist.linear.x = 0.2 # set speed 
+          self.twist.linear.x = 0.1 # set speed 
           self.twist.angular.z = -float(err) / 100 # set turn based on the amount of error from angle of current turtlebot
           self.cmd_vel_pub.publish(self.twist)
           # END CONTROL
