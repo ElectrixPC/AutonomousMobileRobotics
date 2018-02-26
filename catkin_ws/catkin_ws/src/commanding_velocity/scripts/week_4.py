@@ -23,27 +23,23 @@ class image_converter:
         #                                  Image, self.callback)
         self.wheel_sub = rospy.Subscriber("/wheel_vel_left",
                                           Float32, self.callback)
-        self.cmd_vel_pub = rospy.Publisher("/turtlebot_2/cmd_vel", Twist, queue_size=1)
+        self.cmd_vel_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
         self.twist = Twist()
+        self.wheel_radius = 1
+        self.robot_radius = 1
 
+    # computing the forward kinematics for a differential drive
+    def forward_kinematics(self, w_l, w_r):
+        c_l = self.wheel_radius * w_l
+        c_r = self.wheel_radius * w_r
+        v = (c_l + c_r) / 2
+        a = (c_r - c_l) / (2 * self.robot_radius)
+        return (v, a)    
+    
     def callback(self, data):
         print data
-        wheel_radius = 1
-        robot_radius = 1
         
-        
-        # computing the forward kinematics for a differential drive
-        def forward_kinematics(w_l, w_r):
-            c_l = wheel_radius * w_l
-            c_r = wheel_radius * w_r
-            v = (c_l + c_r) / 2
-            a = (c_r - c_l) / (2 * robot_radius)
-            return (v, a)
-        
-        
-        
-        
-        v, a = forward_kinematics(data.data, 0.0)
+        v, a = self.forward_kinematics(data.data, 0.0)
         self.twist.linear.x = v
         self.twist.angular.z = a
         self.cmd_vel_pub.publish(self.twist)
