@@ -32,9 +32,12 @@ class Follower:
         self.depth = 100000000
         self.dataranges = 0
         self.found = False
+        self.commandChanges = 0
         self.search = False
+        self.command = ""
         self.seek = False
         self.founditer = 0
+        self.searchtimes = 0 
         self.maskGreen = 0
         self.maskRed = 0
         self.maskYellow = 0
@@ -51,7 +54,6 @@ class Follower:
         self.dataranges = data
         if not self.centrePointX == 0:
             self.depth = data.ranges[self.centrePointX]
-            print self.depth
             if str(self.depth) == "nan":
                 self.depth = 100000000
         #cv2.imshow("depth", depth_array)
@@ -98,7 +100,7 @@ class Follower:
         M = cv2.moments(self.mask)
         
         if M['m00'] > 100000:
-            if self.depth > 0.5:
+            if self.depth > 0.6:
                 self.seekmode(image, M)
             else:
                 self.foundmode(image, M)
@@ -111,7 +113,7 @@ class Follower:
         self.search = True
         self.seek = False
         self.found = False
-        
+        self.searchtimes +=1
         self.spinTimes += 1
         if self.spinTimes < 200:
             print "spinning: " + str(self.spinTimes)
@@ -119,13 +121,88 @@ class Follower:
             self.twist.angular.z = 0.3
             self.cmd_vel_pub.publish(self.twist)
         else:
-            print "moving range: " + str(self.dataranges.ranges[320])
-            if self.dataranges.ranges[320] > 4.0 or str(self.dataranges.ranges[320]) == "nan":
-                self.twist.linear.x = 0.2
-                self.twist.angular.z = 0.0
-                self.cmd_vel_pub.publish(self.twist)
-            else:
+            #print "moving range total: " + str(np.nanmean(self.dataranges.ranges[260:380]))
+            #print "moving range left : " + str(np.nanmean(self.dataranges.ranges[260:320]))
+            #print "moving range right: " + str(np.nanmean(self.dataranges.ranges[320:380]))
+            
+            right  = min(self.dataranges.ranges[:320]) + np.nanmean(self.dataranges.ranges[260:380])
+            left = min(self.dataranges.ranges[320:]) + np.nanmean(self.dataranges.ranges[320:380])
+            
+            
+            print "min total: " + str(min(self.dataranges.ranges))
+            print "min right %s -- mean right %s -- combined %s : " % (str(min(self.dataranges.ranges[:320])), str(np.nanmean(self.dataranges.ranges[260:320])), right)             
+            print "min left %s -- mean left %s -- combined %s : " % (str(min(self.dataranges.ranges[320:])), str(np.nanmean(self.dataranges.ranges[320:380])), left) 
+            
+            
+            if self.searchtimes > 600:
+                print "spinning"
+                self.twist.linear.x = 0.0
                 self.twist.angular.z = 0.3
+                self.cmd_vel_pub.publish(self.twist)
+                if self.searchtimes > 1050:
+                    self.searchtimes = 0
+                    print "stopped spinning"
+            elif min(self.dataranges.ranges) > 0.7:
+                self.commandChanges = 0
+                self.twist.linear.x = 0.2
+                if np.nanmean(self.dataranges.ranges[260:380]) > 4.0:
+                    
+                    self.twist.angular.z = 0.0
+                    self.cmd_vel_pub.publish(self.twist)
+                else:
+                    if abs(right-left) < 0.5:
+                        print "over auto move left"
+                        self.twist.angular.z = 0.3
+                    elif str(left) == "nan":
+                        self.twist.angular.z = 0.3
+                    elif str(right) == "nan":
+                        self.twist.angular.z = -0.3
+                    elif left > right:
+                        print "over moving left"
+                        self.twist.angular.z = 0.3
+                    else:
+                        print "over moving right"
+                        self.twist.angular.z = -0.3
+                    self.cmd_vel_pub.publish(self.twist)
+            else:
+                self.twist.linear.x = 0.0
+                print str(self.commandChanges)
+                if self.commandChanges > 15:
+                    print "force move left"
+                    if not self.command == "force move left":
+                        self.command == "force move left"
+                        self.commandChanges += 1
+                    self.twist.angular.z = 0.3
+                elif abs(right-left) < 0.5:
+                    print "auto move left"
+                    if not self.command == "auto move left":
+                        self.command == "auto move left"
+                        self.commandChanges += 1
+                    self.twist.angular.z = 0.3
+                elif str(left) == "nan":
+                    print "moving left"
+                    if not self.command == "moving left":
+                        self.command == "moving left"
+                        self.commandChanges += 1
+                    self.twist.angular.z = 0.3
+                elif str(right) == "nan":
+                    print "moving right"
+                    if not self.command == "moving right":
+                        self.command == "moving right"
+                        self.commandChanges += 1
+                    self.twist.angular.z = -0.3
+                elif left > right:
+                    print "moving left"
+                    if not self.command == "moving left":
+                        self.command == "moving left"
+                        self.commandChanges += 1
+                    self.twist.angular.z = 0.3
+                else:
+                    print "moving right"
+                    if not self.command == "moving right":
+                        self.command == "moving right"
+                        self.commandChanges += 1
+                    self.twist.angular.z = -0.3
                 self.cmd_vel_pub.publish(self.twist)
         cv2.imshow("window", image)
         cv2.imshow("mask", self.mask)
