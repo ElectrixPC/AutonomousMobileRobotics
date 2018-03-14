@@ -24,7 +24,7 @@ class Follower:
     def __init__(self):
         self.bridge = cv_bridge.CvBridge()
         cv2.namedWindow("window", 1)
-        #cv2.namedWindow("depth", 1)
+        cv2.namedWindow("explored", 1)
         cv2.namedWindow("mask", 1)        
         self.image_sub = rospy.Subscriber("turtlebot/camera/rgb/image_raw", Image, self.callback)
         self.image_depth = rospy.Subscriber("turtlebot/scan", LaserScan, self.depthcallback)
@@ -161,9 +161,13 @@ class Follower:
         
         for x, y in zip(range(currentPos[0], endPos[0]), range(currentPos[1], endPos[1])):
           if x == endPos[0] and y == endPos[1]: 
-              self.explored[x, y] = 2 # To signify a wall
+              self.explored[x, y] = 255 # To signify a wall
+              print("Found wall at %s %s", x, y)
           else:
-              self.explored[x, y] = 1
+              self.explored[x, y] = 100
+              print("Explored at %s %s", x, y)
+
+        cv2.imshow("explored", self.explored)
         
           
     def searchmode(self, image, mask):
