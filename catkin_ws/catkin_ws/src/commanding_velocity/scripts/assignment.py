@@ -28,14 +28,15 @@ class Follower:
         cv2.namedWindow("mask", 1)        
         self.image_sub = rospy.Subscriber("turtlebot/camera/rgb/image_raw", Image, self.callback)
         self.image_depth = rospy.Subscriber("turtlebot/scan", LaserScan, self.depthcallback)
-        self.image_odom = rospy.Subscriber("/turtlebot/odom", Odometry, self.odomcallback)         
+        self.image_odom = rospy.Subscriber("/turtlebot/odom", Odometry, self.explore)         
         self.cmd_vel_pub = rospy.Publisher("turtlebot/cmd_vel", Twist, queue_size=1)
         self.twist = Twist()
         self.centrePointX = 0
         self.centrePointY = 0
         self.depth = 100000000
         self.dataranges = 0
-        self.odom = np.zeros((10000, 10000))
+        self.firstTime = True
+        self.explore = np.zeros((10000, 10000))
         self.found = False
         self.commandChanges = 0
         self.search = False
@@ -122,37 +123,47 @@ class Follower:
         cv2.imshow("window", image)
         cv2.imshow("mask", self.mask)
         
-        if M['m00'] > 100000:
-            if self.depth > 0.6:
-                self.seekmode(image, M)
-            else:
-                self.foundmode(image, M)
-        else:
-            self.searchmode(image, self.mask)
-            
+        # if M['m00'] > 100000:
+        #     if self.depth > 0.6:
+        #         self.seekmode(image, M)
+        #     else:
+        #         self.foundmode(image, M)
+        # else:
+        #     self.searchmode(image, self.mask)
         
-    
-    def odomcallback(self, data):
-        if self.odom[int(data.pose.pose.position.x * 100), int(data.pose.pose.position.x * 100)] == 0:
-            self.odom[int(data.pose.pose.position.x * 100), int(data.pose.pose.position.x * 100)] = 1
-            print "found x:" + str(int(data.pose.pose.position.x * 100)) + " y: " + str(int(data.pose.pose.position.y * 100))
-        self.currentpos = [int(data.pose.pose.position.x * 100), int(data.pose.pose.position.x * 100)]
-        #angle = self.odom_orientation(data.pose.pose.orientation)
-        #print "angle = %f" % angle
-        
-        cv2.waitKey(100)
-        
-    def alreadyexplored(self):
-        # get current position and angle
-        # work out if angle of attack will go towards unchartered teritorry
-        # if not turn towards unchartered teritorry
 
-        explored = []
-        for x in self.odom:
-            if self.odom[x[0],x[1]] == 1:
-                explored.append([x[0], x[1]])
-        if self.currentpos in explored:
-            print "yes!"
+    def odom_orientation(self, q):
+        y, p, r = transformations.euler_from_quaternion([q.w, q.x, q.y, q.z])
+        return y * 180 / pi
+        
+    def explore(self, data):
+        # NORMALISE TO ZERO AT START FOR DATA EASE
+        if self.firstTime:
+            self.diffToStart = [int(data.pose.pose.position.x * 1000), int(data.pose.pose.position.x * 1000)]
+            self.firstTime = False
+        currentPos = [x, y] - self.diffToStart
+
+        depth = self.depth
+        angle = self.odom_orientation(data.pose.pose.orientation)
+        #UP
+        if angle > 300 and angle < 60: 
+            endPos = [x, y + depth]
+        #RIGHT
+        if angle > 50 and angle < 130: 
+            endPos = [x + depth, y] 
+        #DOWN
+        if angle > 130 and angle < 220: 
+            endPos = [x, y - depth] 
+        #LEFT
+        if angle > 220 and angle < 300: 
+            endPos = [x - depth, y] 
+
+        
+        for x, y in zip(range(currentPos[0], endPos[0]), range(currentPos[1], endPos[1])):
+          if x == endPos[0] and y == endPos[1]: 
+              self.explored[x, y] = 2 # To signify a wall
+          else:
+              self.explored[x, y] = 1
         
           
     def searchmode(self, image, mask):
