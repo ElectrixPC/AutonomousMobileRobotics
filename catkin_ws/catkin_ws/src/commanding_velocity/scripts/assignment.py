@@ -19,7 +19,7 @@ from math import pi
 import matplotlib.pyplot as plt
 from nav_msgs.msg import Odometry
 from math import radians
-
+import sys
 
 class Follower:
 
@@ -37,8 +37,9 @@ class Follower:
         self.centrePointY = 0
         self.depth = 0
         self.dataranges = 0
+        self.firstDepthTime = True
         self.firstTime = True
-        self.explored = np.zeros((1000, 1000))
+        self.explored = np.zeros((1500, 1500))
         self.found = False
         self.commandChanges = 0
         self.search = False
@@ -76,6 +77,8 @@ class Follower:
                 
         self.right  = min(self.dataranges.ranges[:320]) + np.nanmean(self.dataranges.ranges[260:380])
         self.left   = min(self.dataranges.ranges[320:]) + np.nanmean(self.dataranges.ranges[320:380])
+        
+        self.firstDepthTime = False
         #cv2.imshow("depth", depth_array)
         cv2.waitKey(1)
         #cv2.imwrite("depth.png", depth_array*255)
@@ -131,15 +134,15 @@ class Follower:
         #cv2.imshow("window", image)
         #cv2.imshow("mask", self.mask)
         
-        self.explore()  
-        
-        #if M['m00'] > 100000:
-        #    if self.depth > 0.6:
-        #         self.seekmode(image, M)
-        #    else:
-        #         self.foundmode(image, M)
-        #else:
-        #    self.searchmode(image, self.mask)
+        mydepth = self.explore()  
+        if not self.firstDepthTime:
+            if M['m00'] > 100000:
+                if self.depth < 0.75 and M['m00'] > 10000000:
+                     self.foundmode(image, M)
+                else:
+                     self.seekmode(image, M)
+            else:
+                self.searchmode(image, self.mask)
         
 
     def odom_orientation(self, q):
@@ -158,57 +161,68 @@ class Follower:
         self.y = y - self.diffToStart[1]
         self.currentPos = [self.x, self.y]
         self.angle = int(self.odom_orientation(data.pose.pose.orientation))
+        
+        
+        
+        cv2.imshow("explored", self.threshed)
         cv2.waitKey(1)
         
     def explore(self):
-        depth = int(abs(self.depth)*10)
+        if str(self.depth) == "nan":
+            return
+        else:
+            depth = int(abs(self.depth)*10)
         
         
         #RIGHT
         if self.angle < -155 or self.angle > 155:
             endPos = [self.x + depth , self.y]
-            print("RIGHT")
+            direction="RIGHT"
         #RIGHT - UP
-        elif self.angle in range(25, 65):
+        elif self.angle in range(115, 155):
             endPos = [self.x + depth, self.y + depth]
-            print("RIGHT - UP")
+            direction="RIGHT - UP"
         #UP
         elif self.angle in range(65, 115):
             endPos = [self.x, self.y + depth]
-            print("UP")
+            direction="UP"
         #LEFT - UP
         elif self.angle in range(25, 65):
             endPos = [self.x - depth, self.y + depth]
-            print("LEFT - UP")
+            direction="LEFT - UP"
         #LEFT
         elif self.angle in range (-25, 25):
             endPos = [self.x - depth, self.y]
-            print("LEFT")
+            direction="LEFT"
         #DOWN - LEFT
         elif self.angle in range(-65, -25):
             endPos = [self.x - depth, self.y - depth]
-            print("DOWN - LEFT")
+            direction="DOWN - LEFT"
         #DOWN
         elif self.angle in range(-115, -65):
             endPos = [self.x, self.y - depth]
-            print("DOWN")
+            direction="DOWN"
         #DOWN - RIGHT
         elif self.angle in range(-155, -115):
             endPos = [self.x + depth, self.y - depth]
-            print("DOWN - RIGHT")
+            direction="DOWN - RIGHT"
         else:
             endPos = [self.x, self.y]
-            print("ERR", self.x, self.y)
-            
+            direction="ERR"            
 
-        #print("depth: ", depth)
+        print("depth: ", depth)
         #print("currentPos: %", self.currentPos)
         #print("endPos: ", endPos)
-        #print("angle: %f" % self.angle)
+        #print("angle: %f direction %s" % (self.angle, direction))
         #print("diff: %i %i" % (self.diffToStart[0], self.diffToStart[1]))
-        self.twist.linear.x = 0.0
-        self.twist.angular.z = 0.0
-        self.cmd_vel_pub.publish(self.twist)
+        #self.twist.linear.x = 0.0
+        #self.twist.angular.z = 0.0
+        #self.cmd_vel_pub.publish(self.twist)
+        
+        if abs(endPos[0] - self.currentPos[0]) and abs(endPos[0] - self.currentPos[0]) < 2:
+            print("AUTO MOVING, DONT WANT TO GO BACK TO ORIGINAL")
+            self.commandmoveleft("AUTO MOVING")
+            rospy.sleep(5)
         
         if endPos[0] > self.currentPos[0]:
             iterableX = range(self.currentPos[0], endPos[0]+1)
@@ -227,23 +241,64 @@ class Follower:
                     if not self.explored[x1, y1] > 0: 
                         self.explored[x1, y1] = 255
                         print("highest at", x1, y1)
+                        
                    # self.explored[x1, y1] = 255 # To signify a wall
                     #print("Found wall at", x1, y1)
                 else:
-                    if not self.explored[x1, y1] > 0: 
-                        self.explored[x1, y1] = 100
+                    if not self.explored[x1, y1] > 0 and x1 != y1: 
+                        self.explored[x1+1, y1] = 10
+                        self.explored[x1, y1] = 10
+                        self.explored[x1-1, y1] = 10
+                        self.alreadyExplored = False
                         print("Explored at", x1, y1)
+                if self.explored[x1, y1] > 0:
+                    self.alreadyExplored = True
         im = np.array(self.explored, dtype = np.uint8)
-        threshed = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 3, 0)
-               
-        cv2.imshow("explored", threshed)
+        self.threshed = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 3, 0)
+        return depth
+        #self.twist.linear.x = 0.0
+        #self.twist.angular.z = 0.1 
+        #self.cmd_vel_pub.publish(self.twist)
         
-        self.twist.linear.x = 0.0
-        self.twist.angular.z = 0.3 
+    def commandmoveleft(self, name, recordChanges = False):
+        print name
+        if recordChanges:
+            if not self.command == name:
+                self.command == name
+                self.commandChanges += 1
+        self.twist.angular.z = 0.4
+        self.cmd_vel_pub.publish(self.twist)
+            
+    def commandmoveright(self, name, recordChanges = False):
+        print name
+        if recordChanges:
+            if not self.command == name:
+                self.command == name
+                self.commandChanges += 1
+        self.twist.angular.z = -0.4
         self.cmd_vel_pub.publish(self.twist)
         
-        
-        
+    def autocontrolbot(self, seekMode = False):
+        self.twist.linear.x = 0.0
+        print str(self.commandChanges)
+        if self.commandChanges > 50:
+            self.commandmoveleft("force move left", True)
+        elif abs(self.right-self.left) < 0.5:
+            if seekMode:
+                self.right  = max(self.dataranges.ranges[:320]) + np.nanmean(self.dataranges.ranges[260:380])
+                self.left   = max(self.dataranges.ranges[320:]) + np.nanmean(self.dataranges.ranges[320:380])
+                self.autocontrolbot(seekMode = True)
+            else:
+                self.commandmoveleft("auto move left", True)
+        elif str(self.left) == "nan":
+            self.commandmoveleft("moving left", True)
+        elif str(self.right) == "nan":
+            self.commandmoveright("moving right", True)
+        elif self.left > self.right:
+            self.commandmoveleft("moving left", True)
+        else:
+            self.commandmoveright("moving right", True)
+        self.cmd_vel_pub.publish(self.twist)
         
     def searchmode(self, image, mask):
         if self.search == False:
@@ -254,94 +309,31 @@ class Follower:
         self.searchtimes +=1
         self.spinTimes += 1
         
-              
-        
         if self.spinTimes < 200:
-            #print "spinning: " + str(self.spinTimes)
             self.twist.linear.x = 0.0
             self.twist.angular.z = 0.3
             self.cmd_vel_pub.publish(self.twist)
         else:
-            #print "moving range total: " + str(np.nanmean(self.dataranges.ranges[260:380]))
-            #print "moving range left : " + str(np.nanmean(self.dataranges.ranges[260:320]))
-            #print "moving range right: " + str(np.nanmean(self.dataranges.ranges[320:380]))
-            
-            
-            
-            
-            #print "min total: " + str(min(self.dataranges.ranges))
-            #print "min right %s -- mean right %s -- combined %s : " % (str(min(self.dataranges.ranges[:320])), str(np.nanmean(self.dataranges.ranges[260:320])), self.right)             
-            #print "min left %s -- mean left %s -- combined %s : " % (str(min(self.dataranges.ranges[320:])), str(np.nanmean(self.dataranges.ranges[320:380])), self.left) 
-            if self.searchtimes > 600:
-                #print "spinning"
-                self.twist.linear.x = 0.0
-                self.twist.angular.z = 0.3
-                self.cmd_vel_pub.publish(self.twist)
-                if self.searchtimes > 1050:
-                    self.searchtimes = 0
-                    print "stopped spinning"
-            elif min(self.dataranges.ranges) > 0.5:
+            if min(self.dataranges.ranges) > 0.75:
                 self.commandChanges = 0
                 self.twist.linear.x = 0.5
+                
                 if np.nanmean(self.dataranges.ranges[260:380]) > 6.0:
-                    
                     self.twist.angular.z = 0.0
                     self.cmd_vel_pub.publish(self.twist)
                 else:
                     if abs(self.right-self.left) < 0.2:
-                        print "over auto move right"
-                        self.twist.angular.z = -0.3
+                        self.commandmoveright("over auto move right")
                     elif str(self.left) == "nan":
-                        self.twist.angular.z = 0.3
+                        self.commandmoveleft("max move left")
                     elif str(self.right) == "nan":
-                        self.twist.angular.z = -0.3
+                        self.commandmoveright("max move right")
                     elif self.left > self.right:
-                        print "over moving left"
-                        self.twist.angular.z = 0.3
+                        self.commandmoveleft("over moving left")
                     else:
-                        print "over moving right"
-                        self.twist.angular.z = -0.3
-                    self.cmd_vel_pub.publish(self.twist)
+                        self.commandmoveright("over moving right")
             else:
-                self.twist.linear.x = 0.0
-                print str(self.commandChanges)
-                if self.commandChanges > 15:
-                    print "force move left"
-                    if not self.command == "force move left":
-                        self.command == "force move left"
-                        self.commandChanges += 1
-                    self.twist.angular.z = 0.3
-                elif abs(self.right-self.left) < 0.5:
-                    print "auto move left"
-                    if not self.command == "auto move left":
-                        self.command == "auto move left"
-                        self.commandChanges += 1
-                    self.twist.angular.z = 0.3
-                elif str(self.left) == "nan":
-                    print "moving left"
-                    if not self.command == "moving left":
-                        self.command == "moving left"
-                        self.commandChanges += 1
-                    self.twist.angular.z = 0.3
-                elif str(self.right) == "nan":
-                    print "moving right"
-                    if not self.command == "moving right":
-                        self.command == "moving right"
-                        self.commandChanges += 1
-                    self.twist.angular.z = -0.3
-                elif self.left > self.right:
-                    print "moving left"
-                    if not self.command == "moving left":
-                        self.command == "moving left"
-                        self.commandChanges += 1
-                    self.twist.angular.z = 0.3
-                else:
-                    print "moving right"
-                    if not self.command == "moving right":
-                        self.command == "moving right"
-                        self.commandChanges += 1
-                    self.twist.angular.z = -0.3
-                self.cmd_vel_pub.publish(self.twist)
+                self.autocontrolbot()
         
         cv2.waitKey(1)
         
@@ -361,10 +353,10 @@ class Follower:
           
         err = cx - w/2
         print "min total: " + str(min(self.dataranges.ranges))
-        if min(self.dataranges.ranges) < 0.5 or str(min(self.dataranges.ranges)) == "nan":
-            self.twist.linear.x = 0.0
-            self.twist.angular.z = 0.3
+        if min(self.dataranges.ranges) < 0.75 or str(min(self.dataranges.ranges)) == "nan":
+            self.autocontrolbot(seekMode = True)
         else:
+            self.commandChanges = 0
             self.twist.linear.x = 0.5 # set speed 
             self.twist.angular.z = -float(err) / 100 # set turn based on the amount of error from angle of current turtlebot
         self.cmd_vel_pub.publish(self.twist)
@@ -387,7 +379,7 @@ class Follower:
         self.search = False
         self.seek = False
         self.twist.linear.x = 0.0
-        self.twist.angular.z = 0.3
+        self.twist.angular.z = 0.5
         self.cmd_vel_pub.publish(self.twist)
         
         #self.founditer += 1
@@ -397,7 +389,11 @@ class Follower:
         self.found = False
         print "removing color " + self.color + " from mask"
         self.colors.remove(self.color)
+        if len(self.colors) == 0:
+            print("COMPLETED")
+            sys.exit()
         print self.colors
+        rospy.sleep(5)
         #self.founditer = 0
         cv2.waitKey(1)
                 
