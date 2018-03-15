@@ -10,6 +10,7 @@ Created on Mon Feb 12 15:08:04 2018
 import rospy
 import cv2, cv_bridge
 import numpy as np
+import operator
 from sensor_msgs.msg import Image, LaserScan
 from geometry_msgs.msg import Twist
 from pprint import pformat
@@ -28,15 +29,15 @@ class Follower:
         cv2.namedWindow("mask", 1)        
         self.image_sub = rospy.Subscriber("turtlebot/camera/rgb/image_raw", Image, self.callback)
         self.image_depth = rospy.Subscriber("turtlebot/scan", LaserScan, self.depthcallback)
-        self.image_odom = rospy.Subscriber("/turtlebot/odom", Odometry, self.explore)         
+        self.image_odom = rospy.Subscriber("/turtlebot/odom", Odometry, self.explorecallback)         
         self.cmd_vel_pub = rospy.Publisher("turtlebot/cmd_vel", Twist, queue_size=1)
         self.twist = Twist()
         self.centrePointX = 0
         self.centrePointY = 0
-        self.depth = 100000000
+        self.depth = 0
         self.dataranges = 0
         self.firstTime = True
-        self.explore = np.zeros((10000, 10000))
+        self.explored = np.zeros((10000, 10000))
         self.found = False
         self.commandChanges = 0
         self.search = False
@@ -62,9 +63,15 @@ class Follower:
         #cv2.normalize(depth_array, depth_array, 0, 1, cv2.NORM_MINMAX)
         self.dataranges = data
         if not self.centrePointX == 0:
-            self.depth = data.ranges[self.centrePointX]
             if str(self.depth) == "nan":
-                self.depth = 100000000
+                self.depth = 10
+            else:
+                self.depth = data.ranges[self.centrePointX]
+        else:
+            if str(self.depth) == "nan":
+                self.depth = 10
+            else:
+                self.depth = data.ranges[320]
                 
         self.right  = min(self.dataranges.ranges[:320]) + np.nanmean(self.dataranges.ranges[260:380])
         self.left   = min(self.dataranges.ranges[320:]) + np.nanmean(self.dataranges.ranges[320:380])
@@ -120,65 +127,91 @@ class Follower:
         # calculate the area of the values that are within the mask
         M = cv2.moments(self.mask)
         
-        cv2.imshow("window", image)
-        cv2.imshow("mask", self.mask)
+        #cv2.imshow("window", image)
+        #cv2.imshow("mask", self.mask)
         
-        # if M['m00'] > 100000:
-        #     if self.depth > 0.6:
-        #         self.seekmode(image, M)
-        #     else:
-        #         self.foundmode(image, M)
-        # else:
-        #     self.searchmode(image, self.mask)
+        if M['m00'] > 100000:
+            if self.depth > 0.6:
+                 self.seekmode(image, M)
+            else:
+                 self.foundmode(image, M)
+        else:
+            self.searchmode(image, self.mask)
         
 
     def odom_orientation(self, q):
         y, p, r = transformations.euler_from_quaternion([q.w, q.x, q.y, q.z])
         return y * 180 / pi
         
-    def explore(self, data):
+    def explorecallback(self, data):
         # NORMALISE TO ZERO AT START FOR DATA EASE
+        x = int(data.pose.pose.position.x * 100)
+        y = int(data.pose.pose.position.x * 100)        
         if self.firstTime:
-            self.diffToStart = [int(data.pose.pose.position.x * 1000), int(data.pose.pose.position.x * 1000)]
+            self.diffToStart = [x-500, y-500]
             self.firstTime = False
-        currentPos = [x, y] - self.diffToStart
-
-        depth = self.depth
-        angle = self.odom_orientation(data.pose.pose.orientation)
-        #UP
-        if angle > 300 and angle < 60: 
-            endPos = [x, y + depth]
-        #RIGHT
-        if angle > 50 and angle < 130: 
-            endPos = [x + depth, y] 
-        #DOWN
-        if angle > 130 and angle < 220: 
-            endPos = [x, y - depth] 
-        #LEFT
-        if angle > 220 and angle < 300: 
-            endPos = [x - depth, y] 
-
         
-        for x, y in zip(range(currentPos[0], endPos[0]), range(currentPos[1], endPos[1])):
-          if x == endPos[0] and y == endPos[1]: 
-              self.explored[x, y] = 255 # To signify a wall
-              print("Found wall at %s %s", x, y)
-          else:
-              self.explored[x, y] = 100
-              print("Explored at %s %s", x, y)
-
-        cv2.imshow("explored", self.explored)
+        self.x = x - self.diffToStart[0]
+        self.y = y - self.diffToStart[1]
+        self.currentPos = [self.x, self.y]
+        self.angle = self.odom_orientation(data.pose.pose.orientation)
         
-          
+        
+    def explore(self):
+        depth = int(abs(self.depth)*10)
+        #UP (90))
+        if self.angle < -150 or self.angle >= 150.0: 
+            endPos = [self.x + depth, self.y]
+            #print("UP")
+        #RIGHT (160 - 160)
+        elif self.angle > 60.0 and self.angle <= 150.0: 
+            endPos = [self.x , self.y + depth]
+            #print("RIGHT")
+        #DOWN (-90)
+        elif self.angle > -150.0 and self.angle <= -60.0: 
+            endPos = [self.x, self.y - depth] 
+            #print("DOWN")
+        #LEFT (0)
+        elif self.angle > -60 and self.angle <= 60: 
+            endPos = [self.x - depth, self.y] 
+            #print("LEFT")
+        else:
+            endPos = [self.x, self.y]
+            print("DeFAULT")
+        #print("depth: ", depth)
+        #print("currentPos: %", currentPos)
+        #print("endPos: ", endPos)
+        #print("angle: %f" % angle)
+        #print("diff: %i %i" % (self.diffToStart[0], self.diffToStart[1]))
+        for x1 in range(self.currentPos[0], endPos[0]+1):
+            for y1 in range(self.currentPos[1], endPos[1]+1):   
+                if x1 == endPos[0] and y1 == endPos[1]:
+                    if not self.explored[x1, y1] > 0: 
+                        self.explored[x1, y1] = 255
+                        print("highest at", x1, y1)
+                    self.explored[x1, y1] = 255 # To signify a wall
+                    #print("Found wall at", x1, y1)
+                else:
+                    if not self.explored[x1, y1] > 0: 
+                        self.explored[x1, y1] = 100
+                        print("Explored at", x1, y1)
+        im = np.array(self.explored, dtype = np.uint8)
+        threshed = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 3, 0)
+        cv2.imshow("explored", threshed)
+        cv2.waitKey(100)
+        
+        
     def searchmode(self, image, mask):
         if self.search == False:
             print "entering searchmode"
-        self.alreadyexplored()
         self.search = True
         self.seek = False
         self.found = False
         self.searchtimes +=1
         self.spinTimes += 1
+        
+        self.explore()        
+        
         if self.spinTimes < 200:
             #print "spinning: " + str(self.spinTimes)
             self.twist.linear.x = 0.0
