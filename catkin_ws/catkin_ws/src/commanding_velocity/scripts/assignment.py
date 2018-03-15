@@ -18,6 +18,7 @@ from tf_conversions import transformations
 from math import pi
 import matplotlib.pyplot as plt
 from nav_msgs.msg import Odometry
+from math import radians
 
 
 class Follower:
@@ -37,7 +38,7 @@ class Follower:
         self.depth = 0
         self.dataranges = 0
         self.firstTime = True
-        self.explored = np.zeros((10000, 10000))
+        self.explored = np.zeros((1000, 1000))
         self.found = False
         self.commandChanges = 0
         self.search = False
@@ -130,13 +131,15 @@ class Follower:
         #cv2.imshow("window", image)
         #cv2.imshow("mask", self.mask)
         
-        if M['m00'] > 100000:
-            if self.depth > 0.6:
-                 self.seekmode(image, M)
-            else:
-                 self.foundmode(image, M)
-        else:
-            self.searchmode(image, self.mask)
+        self.explore()  
+        
+        #if M['m00'] > 100000:
+        #    if self.depth > 0.6:
+        #         self.seekmode(image, M)
+        #    else:
+        #         self.foundmode(image, M)
+        #else:
+        #    self.searchmode(image, self.mask)
         
 
     def odom_orientation(self, q):
@@ -154,42 +157,77 @@ class Follower:
         self.x = x - self.diffToStart[0]
         self.y = y - self.diffToStart[1]
         self.currentPos = [self.x, self.y]
-        self.angle = self.odom_orientation(data.pose.pose.orientation)
-        
+        self.angle = int(self.odom_orientation(data.pose.pose.orientation))
+        cv2.waitKey(1)
         
     def explore(self):
         depth = int(abs(self.depth)*10)
-        #UP (90))
-        if self.angle < -150 or self.angle >= 150.0: 
-            endPos = [self.x + depth, self.y]
-            #print("UP")
-        #RIGHT (160 - 160)
-        elif self.angle > 60.0 and self.angle <= 150.0: 
-            endPos = [self.x , self.y + depth]
-            #print("RIGHT")
-        #DOWN (-90)
-        elif self.angle > -150.0 and self.angle <= -60.0: 
-            endPos = [self.x, self.y - depth] 
-            #print("DOWN")
-        #LEFT (0)
-        elif self.angle > -60 and self.angle <= 60: 
-            endPos = [self.x - depth, self.y] 
-            #print("LEFT")
+        
+        
+        #RIGHT
+        if self.angle < -155 or self.angle > 155:
+            endPos = [self.x + depth , self.y]
+            print("RIGHT")
+        #RIGHT - UP
+        elif self.angle in range(25, 65):
+            endPos = [self.x + depth, self.y + depth]
+            print("RIGHT - UP")
+        #UP
+        elif self.angle in range(65, 115):
+            endPos = [self.x, self.y + depth]
+            print("UP")
+        #LEFT - UP
+        elif self.angle in range(25, 65):
+            endPos = [self.x - depth, self.y + depth]
+            print("LEFT - UP")
+        #LEFT
+        elif self.angle in range (-25, 25):
+            endPos = [self.x - depth, self.y]
+            print("LEFT")
+        #DOWN - LEFT
+        elif self.angle in range(-65, -25):
+            endPos = [self.x - depth, self.y - depth]
+            print("DOWN - LEFT")
+        #DOWN
+        elif self.angle in range(-115, -65):
+            endPos = [self.x, self.y - depth]
+            print("DOWN")
+        #DOWN - RIGHT
+        elif self.angle in range(-155, -115):
+            endPos = [self.x + depth, self.y - depth]
+            print("DOWN - RIGHT")
         else:
             endPos = [self.x, self.y]
-            print("DeFAULT")
+            print("ERR", self.x, self.y)
+            
+
         #print("depth: ", depth)
-        #print("currentPos: %", currentPos)
+        #print("currentPos: %", self.currentPos)
         #print("endPos: ", endPos)
-        #print("angle: %f" % angle)
+        #print("angle: %f" % self.angle)
         #print("diff: %i %i" % (self.diffToStart[0], self.diffToStart[1]))
-        for x1 in range(self.currentPos[0], endPos[0]+1):
-            for y1 in range(self.currentPos[1], endPos[1]+1):   
+        self.twist.linear.x = 0.0
+        self.twist.angular.z = 0.0
+        self.cmd_vel_pub.publish(self.twist)
+        
+        if endPos[0] > self.currentPos[0]:
+            iterableX = range(self.currentPos[0], endPos[0]+1)
+        else:
+            iterableX = range(self.currentPos[0], endPos[0]-1,  -1)
+        
+        if endPos[1] > self.currentPos[1]:
+            iterableY = range(self.currentPos[1], endPos[1]+1)
+        else:
+            iterableY = range(self.currentPos[1], endPos[1]-1, -1)
+        
+        for x1 in iterableX:
+            for y1 in iterableY:
+                
                 if x1 == endPos[0] and y1 == endPos[1]:
                     if not self.explored[x1, y1] > 0: 
                         self.explored[x1, y1] = 255
                         print("highest at", x1, y1)
-                    self.explored[x1, y1] = 255 # To signify a wall
+                   # self.explored[x1, y1] = 255 # To signify a wall
                     #print("Found wall at", x1, y1)
                 else:
                     if not self.explored[x1, y1] > 0: 
@@ -197,8 +235,14 @@ class Follower:
                         print("Explored at", x1, y1)
         im = np.array(self.explored, dtype = np.uint8)
         threshed = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 3, 0)
+               
         cv2.imshow("explored", threshed)
-        cv2.waitKey(100)
+        
+        self.twist.linear.x = 0.0
+        self.twist.angular.z = 0.3 
+        self.cmd_vel_pub.publish(self.twist)
+        
+        
         
         
     def searchmode(self, image, mask):
@@ -210,7 +254,7 @@ class Follower:
         self.searchtimes +=1
         self.spinTimes += 1
         
-        self.explore()        
+              
         
         if self.spinTimes < 200:
             #print "spinning: " + str(self.spinTimes)
