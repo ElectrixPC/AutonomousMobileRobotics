@@ -18,7 +18,7 @@ from tf_conversions import transformations
 from math import pi
 import matplotlib.pyplot as plt
 from nav_msgs.msg import Odometry
-from math import radians
+from math import radians, cos, sin
 import sys
 
 class Follower:
@@ -224,40 +224,43 @@ class Follower:
         #self.twist.angular.z = 0.0
         #self.cmd_vel_pub.publish(self.twist)
         
-        if abs(endPos[0] - self.currentPos[0]) and abs(endPos[0] - self.currentPos[0]) < 2:
-            print("AUTO MOVING, DONT WANT TO GO BACK TO ORIGINAL")
-            self.commandmoveleft("AUTO MOVING")
-            rospy.sleep(5)
+        # if abs(endPos[0] - self.currentPos[0]) and abs(endPos[0] - self.currentPos[0]) < 2:
+        #     print("AUTO MOVING, DONT WANT TO GO BACK TO ORIGINAL")
+        #     self.commandmoveleft("AUTO MOVING")
+        #     rospy.sleep(5)
         
-        if endPos[0] > self.currentPos[0]:
-            iterableX = range(self.currentPos[0], endPos[0]+1)
-        else:
-            iterableX = range(self.currentPos[0], endPos[0]-1,  -1)
+        # if endPos[0] > self.currentPos[0]:
+        #     iterableX = range(self.currentPos[0], endPos[0]+1)
+        # else:
+        #     iterableX = range(self.currentPos[0], endPos[0]-1,  -1)
         
-        if endPos[1] > self.currentPos[1]:
-            iterableY = range(self.currentPos[1], endPos[1]+1)
-        else:
-            iterableY = range(self.currentPos[1], endPos[1]-1, -1)
+        # if endPos[1] > self.currentPos[1]:
+        #     iterableY = range(self.currentPos[1], endPos[1]+1)
+        # else:
+        #     iterableY = range(self.currentPos[1], endPos[1]-1, -1)
         
-        for x1 in iterableX:
-            for y1 in iterableY:
+        # for x1 in iterableX:
+        #     for y1 in iterableY:
                 
-                if x1 == endPos[0] and y1 == endPos[1]:
-                    if not self.explored[x1, y1] > 0: 
-                        self.explored[x1, y1] = 255
-                        print("highest at", x1, y1)
+        #         if x1 == endPos[0] and y1 == endPos[1]:
+        #             if not self.explored[x1, y1] > 0: 
+        #                 self.explored[x1, y1] = 255
+        #                 print("highest at", x1, y1)
                         
-                   # self.explored[x1, y1] = 255 # To signify a wall
-                    #print("Found wall at", x1, y1)
-                else:
-                    if not self.explored[x1, y1] > 0 and x1 != y1: 
-                        self.explored[x1+1, y1] = 10
-                        self.explored[x1, y1] = 10
-                        self.explored[x1-1, y1] = 10
-                        self.alreadyExplored = False
-                        print("Explored at", x1, y1)
-                if self.explored[x1, y1] > 0:
-                    self.alreadyExplored = True
+        #            # self.explored[x1, y1] = 255 # To signify a wall
+        #             #print("Found wall at", x1, y1)
+        #         else:
+        #             if not self.explored[x1, y1] > 0 and x1 != y1: 
+        #                 self.explored[x1+1, y1] = 10
+        #                 self.explored[x1, y1] = 10
+        #                 self.explored[x1-1, y1] = 10
+        #                 self.alreadyExplored = False
+        #                 print("Explored at", x1, y1)
+        #         if self.explored[x1, y1] > 0:
+        #             self.alreadyExplored = True
+
+        self.threshed[int(floor(endPos[0]))][int(floor(endPos[1]))] = 255
+
         im = np.array(self.explored, dtype = np.uint8)
         self.threshed = cv2.adaptiveThreshold(im, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 3, 0)
         return depth
