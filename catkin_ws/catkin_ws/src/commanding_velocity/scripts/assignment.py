@@ -172,6 +172,8 @@ class Follower:
             return
         else:
             depth = int(abs(self.depth)*10)
+            
+        
         
         
         #RIGHT
@@ -208,7 +210,10 @@ class Follower:
             direction="DOWN - RIGHT"
         else:
             endPos = [self.x, self.y]
-            direction="ERR"            
+            direction="ERR" 
+            
+        #TEST CODE
+        endPos = [self.x + self.depth*cos(self.angle), self.y + self.depth*sin(self.angle)]
 
         print("depth: ", depth)
         #print("currentPos: %", self.currentPos)
